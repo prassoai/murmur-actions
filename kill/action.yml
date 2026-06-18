@@ -49,6 +49,7 @@ runs:
         IN_TOLERATE_MISSING: ${{ inputs.tolerate-missing }}
       run: |
         set -euo pipefail
+        command -v docker >/dev/null || { echo "::error::docker is required to run this action" >&2; exit 1; }
 
         # A kill of an agent with no catalog record fails authz with NotFound (it
         # was never spawned, or is already fully torn down). With tolerate-missing,
@@ -60,7 +61,11 @@ runs:
           >/dev/null 2>/tmp/kill-err.txt; then
           echo "killed $IN_SLUG" >&2
         else
-          if [ "$IN_TOLERATE_MISSING" = "true" ] && grep -qiE 'not ?found' /tmp/kill-err.txt; then
+          # Match the agent-not-found message specifically ("agent \"…\" not
+          # found"), NOT a bare "not found" — a tooling failure like "docker:
+          # command not found" must NOT be mistaken for an already-gone agent and
+          # silently skip a real teardown.
+          if [ "$IN_TOLERATE_MISSING" = "true" ] && grep -qiE 'agent .* not found' /tmp/kill-err.txt; then
             echo "::notice::agent '$IN_SLUG' not found — nothing to kill (idempotent teardown)." >&2
           else
             cat /tmp/kill-err.txt >&2

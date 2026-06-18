@@ -142,6 +142,7 @@ runs:
         IN_TIMEOUT: ${{ inputs.timeout }}
       run: |
         set -euo pipefail
+        command -v docker >/dev/null || { echo "::error::docker is required to run this action" >&2; exit 1; }
 
         # Spawn the agent. Never --wait here: agent-ref must be emitted before any
         # blocking wait, so a downstream step can reference (or tear down) the
