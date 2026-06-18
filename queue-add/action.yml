@@ -81,6 +81,13 @@ runs:
         set -euo pipefail
         command -v docker >/dev/null || { echo "::error::docker is required to run this action" >&2; exit 1; }
 
+        # slug_log is the slug with any CR/LF stripped, for safe use in log lines
+        # and $GITHUB_OUTPUT — a workflow command (::notice::…) or an output line
+        # starts at a newline, so an untrusted slug containing "\n::error::…" could
+        # otherwise forge a workflow command. The raw $IN_SLUG still goes to the
+        # CLI (the server validates the real slug).
+        slug_log=${IN_SLUG//[$'\n\r']/}
+
         # `queue add` fails with NotFound when there is no live agent to receive
         # the follow-up, in two shapes — both legitimate deliver-or-spawn cases:
         #   * "<agent> is not running — spawn it first" (exists, not running)
@@ -106,13 +113,13 @@ runs:
              && grep -qiE 'is not running|agent.*not found' "$err" \
              && ! grep -qi 'in catalog' "$err"; then
             delivered=false
-            echo "::notice::no live agent '$IN_SLUG' — follow-up not delivered (delivered=false)." >&2
+            echo "::notice::no live agent '$slug_log' — follow-up not delivered (delivered=false)." >&2
           else
             cat "$err" >&2
             exit 1
           fi
         fi
         {
-          echo "agent-ref=$IN_SLUG"
+          echo "agent-ref=$slug_log"
           echo "delivered=$delivered"
         } >>"$GITHUB_OUTPUT"

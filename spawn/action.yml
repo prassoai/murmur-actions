@@ -144,6 +144,12 @@ runs:
         set -euo pipefail
         command -v docker >/dev/null || { echo "::error::docker is required to run this action" >&2; exit 1; }
 
+        # slug_log = slug with CR/LF stripped, for safe use in log lines and the
+        # agent-ref $GITHUB_OUTPUT — a workflow command (::error::…) or an output
+        # line begins at a newline, so an untrusted slug containing "\n::error::…"
+        # could otherwise forge one. The raw $IN_SLUG still goes to the CLI.
+        slug_log=${IN_SLUG//[$'\n\r']/}
+
         # Spawn the agent. Never --wait here: agent-ref must be emitted before any
         # blocking wait, so a downstream step can reference (or tear down) the
         # agent even if the wait below times out. The workspace is mounted so an
@@ -160,10 +166,10 @@ runs:
           "--purpose=$IN_PURPOSE" "--output-schema=$IN_OUTPUT_SCHEMA" \
           -- "$IN_SLUG" "$IN_PROMPT" >/dev/null
 
-        echo "agent-ref=$IN_SLUG" >>"$GITHUB_OUTPUT"
+        echo "agent-ref=$slug_log" >>"$GITHUB_OUTPUT"
 
         if [ "$IN_WAIT" != "true" ]; then
-          echo "Spawned '$IN_SLUG' (wait=false); not blocking on completion." >&2
+          echo "Spawned '$slug_log' (wait=false); not blocking on completion." >&2
           exit 0
         fi
 
@@ -200,17 +206,17 @@ runs:
         emit_multiline response "$response"
         emit_multiline structured-output "$structured"
 
-        echo "Agent '$IN_SLUG' finished in phase '$phase' (is_error=$is_error)." >&2
+        echo "Agent '$slug_log' finished in phase '$phase' (is_error=$is_error)." >&2
 
         # Fail the step on an agent-reported error or a terminal failure phase,
         # after outputs are written (so an `if: always()` step still sees them).
         if [ "$is_error" = "true" ]; then
-          echo "::error::murmur agent '$IN_SLUG' reported an error result" >&2
+          echo "::error::murmur agent '$slug_log' reported an error result" >&2
           exit 1
         fi
         case "$phase" in
           PHASE_FAILED | PHASE_CANCELED)
-            echo "::error::murmur agent '$IN_SLUG' ended in phase $phase" >&2
+            echo "::error::murmur agent '$slug_log' ended in phase $phase" >&2
             exit 1
             ;;
         esac
