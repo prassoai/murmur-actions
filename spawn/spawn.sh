@@ -77,6 +77,9 @@ add_arg model "${MURMUR_MODEL:-}"
 add_arg reasoning_effort "${MURMUR_REASONING_EFFORT:-}"
 add_arg purpose "${MURMUR_PURPOSE:-}"
 add_arg output_schema "$output_schema"
+# CI spawns are one-shot: default to tearing the agent down when it goes idle so
+# each run leaves nothing lingering. Override via the action's on-idle input.
+add_arg on_idle "${MURMUR_ON_IDLE:-terminate}"
 
 echo "Spawning murmur agent '$slug' in workspace '$MURMUR_WORKSPACE'…"
 spawn_result=$(mcp_call spawn "$spawn_args")

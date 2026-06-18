@@ -51,6 +51,10 @@ See [`action.yml`](./action.yml). Key inputs: `api-url`, `api-key`, `workspace`,
 `structured-output` (the caller-schema `result` as JSON), `response`, `phase`,
 `is-error`, `agent-ref`.
 
+By default `on-idle: terminate` — the agent tears itself down once it finishes,
+so a CI spawn leaves nothing lingering. Set `on-idle: sleep` to keep it reachable
+for follow-ups, or `keep_alive` for a long-lived session.
+
 ## Structured output
 
 When `output-schema` is set, the agent returns a `{response, feedback, result}`

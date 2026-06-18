@@ -37,6 +37,14 @@ inputs:
     description: 'Expected artifact: respond, pr, push, diff, report, none, or freeform text.'
     required: false
     default: respond
+  on-idle:
+    description: >-
+      What the agent does once it goes idle: terminate (default — tears the agent
+      down so a CI spawn leaves nothing lingering), sleep (stays reachable for
+      follow-ups/event wakes), or keep_alive. CI spawns are one-shot, so the
+      default is terminate.
+    required: false
+    default: terminate
   model:
     description: Model override. Optional.
     required: false
@@ -85,6 +93,7 @@ runs:
         MURMUR_CODING_AGENT: ${{ inputs.coding-agent }}
         MURMUR_OUTPUT_SCHEMA: ${{ inputs.output-schema }}
         MURMUR_EXPECTED_OUTPUT: ${{ inputs.expected-output }}
+        MURMUR_ON_IDLE: ${{ inputs.on-idle }}
         MURMUR_MODEL: ${{ inputs.model }}
         MURMUR_REASONING_EFFORT: ${{ inputs.reasoning-effort }}
         MURMUR_PURPOSE: ${{ inputs.purpose }}
