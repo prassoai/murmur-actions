@@ -1,0 +1,69 @@
+name: Murmur Kill
+description: >-
+  Cancel a murmur agent (and its subtree). A composite action that runs the
+  published murmur CLI image (docker run … kill --json), authenticated with a
+  service-profile API key (mur_…). Idempotent teardown:
+  with tolerate-missing=true, killing an agent that is already gone (or was never
+  spawned) is treated as success, so it is safe to call on a lifecycle event
+  (e.g. PR closed) regardless of whether the agent still exists.
+
+inputs:
+  api-key:
+    description: A mur_-prefixed service-profile API key. Pass via a secret, never inline.
+    required: true
+  api-address:
+    description: >-
+      murmur-api gRPC address as host:port (e.g. api.murmur.dev:9090), set on
+      MURMUR_API_ADDRESS. Leave empty to use the CLI's built-in production
+      default (api.murmur.dev:9090, TLS on).
+    required: false
+    default: ""
+  workspace:
+    description: Murmur workspace the agent runs in.
+    required: true
+  slug:
+    description: Slug of the agent to kill.
+    required: true
+  tolerate-missing:
+    description: >-
+      When "true" (default), a kill of an agent that does not exist (already torn
+      down, or never spawned) is reported as success — teardown is idempotent.
+      Real transport/auth errors still fail the step. Set "false" to fail on any
+      kill error.
+    required: false
+    default: "true"
+
+runs:
+  # Composite (see actions/spawn/action.yml): runs the published murmur-cli image.
+  # The CLI knows nothing about GitHub Actions; the teardown glue lives here.
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        MURMUR_API_KEY: ${{ inputs.api-key }}
+        MURMUR_API_ADDRESS: ${{ inputs.api-address }}
+        MURMUR_IMAGE: ghcr.io/prassoai/murmur-cli:main
+        IN_WORKSPACE: ${{ inputs.workspace }}
+        IN_SLUG: ${{ inputs.slug }}
+        IN_TOLERATE_MISSING: ${{ inputs.tolerate-missing }}
+      run: |
+        set -euo pipefail
+
+        # A kill of an agent with no catalog record fails authz with NotFound (it
+        # was never spawned, or is already fully torn down). With tolerate-missing,
+        # absorb only that into a no-op success so teardown is idempotent; any
+        # other error (auth, transport) fails the step.
+        if docker run --rm \
+          -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
+          "$MURMUR_IMAGE" kill --json "--workspace=$IN_WORKSPACE" -- "$IN_SLUG" \
+          >/dev/null 2>/tmp/kill-err.txt; then
+          echo "killed $IN_SLUG" >&2
+        else
+          if [ "$IN_TOLERATE_MISSING" = "true" ] && grep -qiE 'not ?found' /tmp/kill-err.txt; then
+            echo "::notice::agent '$IN_SLUG' not found — nothing to kill (idempotent teardown)." >&2
+          else
+            cat /tmp/kill-err.txt >&2
+            exit 1
+          fi
+        fi
