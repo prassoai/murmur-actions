@@ -1,0 +1,94 @@
+name: Murmur Spawn
+description: >-
+  Spawn a murmur agent from a GitHub workflow, wait for it, and return its
+  structured output. Authenticates with a service-profile API key (mur_…) over
+  murmur-api's /mcp endpoint — no OIDC, no webhook. See
+  docs/finished/DESIGN_GHA_SPAWN_ACTION.md.
+
+inputs:
+  api-url:
+    description: Base URL of the murmur API host (where the /mcp endpoint lives), e.g. https://api.murmur.example.
+    required: true
+  api-key:
+    description: A mur_-prefixed service-profile API key. Pass via a secret, never inline.
+    required: true
+  workspace:
+    description: Murmur workspace the agent runs in.
+    required: true
+  prompt:
+    description: The agent task description.
+    required: true
+  slug:
+    description: Agent slug. Defaults to gha-<run_id>-<run_attempt> so re-runs are distinct.
+    required: false
+    default: ""
+  coding-agent:
+    description: Agent persona name (resolved from the tenant catalog). Optional.
+    required: false
+    default: ""
+  output-schema:
+    description: >-
+      JSON Schema for the agent's structured answer — inline JSON, or @path to
+      read from a file in the checkout. The schema-validated result is returned
+      on the structured-output step output.
+    required: false
+    default: ""
+  expected-output:
+    description: 'Expected artifact: respond, pr, push, diff, report, none, or freeform text.'
+    required: false
+    default: respond
+  model:
+    description: Model override. Optional.
+    required: false
+    default: ""
+  reasoning-effort:
+    description: 'Reasoning effort: low, medium, high, xhigh, max. Optional.'
+    required: false
+    default: ""
+  purpose:
+    description: One-sentence human-readable goal shown in the dashboard. Optional.
+    required: false
+    default: ""
+  timeout:
+    description: Max seconds to wait for the agent before failing the step.
+    required: false
+    default: "600"
+
+outputs:
+  structured-output:
+    description: The caller-schema result as a JSON string (empty if no output-schema was given).
+    value: ${{ steps.run.outputs.structured-output }}
+  response:
+    description: The agent's human-readable response summary.
+    value: ${{ steps.run.outputs.response }}
+  agent-ref:
+    description: The slug of the spawned agent.
+    value: ${{ steps.run.outputs.agent-ref }}
+  phase:
+    description: The agent's terminal/at-rest phase.
+    value: ${{ steps.run.outputs.phase }}
+  is-error:
+    description: '"true" if the agent run errored.'
+    value: ${{ steps.run.outputs.is-error }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        MURMUR_API_URL: ${{ inputs.api-url }}
+        MURMUR_API_KEY: ${{ inputs.api-key }}
+        MURMUR_WORKSPACE: ${{ inputs.workspace }}
+        MURMUR_PROMPT: ${{ inputs.prompt }}
+        MURMUR_SLUG: ${{ inputs.slug }}
+        MURMUR_CODING_AGENT: ${{ inputs.coding-agent }}
+        MURMUR_OUTPUT_SCHEMA: ${{ inputs.output-schema }}
+        MURMUR_EXPECTED_OUTPUT: ${{ inputs.expected-output }}
+        MURMUR_MODEL: ${{ inputs.model }}
+        MURMUR_REASONING_EFFORT: ${{ inputs.reasoning-effort }}
+        MURMUR_PURPOSE: ${{ inputs.purpose }}
+        MURMUR_TIMEOUT: ${{ inputs.timeout }}
+        MURMUR_RUN_ID: ${{ github.run_id }}
+        MURMUR_RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: ${{ github.action_path }}/spawn.sh
