@@ -142,7 +142,13 @@ runs:
         IN_TIMEOUT: ${{ inputs.timeout }}
       run: |
         set -euo pipefail
-        command -v docker >/dev/null || { echo "::error::docker is required to run this action" >&2; exit 1; }
+        # Fail loud up front if a required tool is missing, rather than spawning
+        # the agent and then crashing mid-parse: docker runs the CLI image, and
+        # (when --wait) jq parses the AgentStatus and openssl mints the heredoc
+        # delimiter for the multiline outputs.
+        for cmd in docker jq openssl; do
+          command -v "$cmd" >/dev/null || { echo "::error::$cmd is required to run this action" >&2; exit 1; }
+        done
 
         # slug_log = slug with CR/LF stripped, for safe use in log lines and the
         # agent-ref $GITHUB_OUTPUT — a workflow command (::error::…) or an output
