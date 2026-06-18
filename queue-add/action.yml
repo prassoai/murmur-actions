@@ -81,26 +81,32 @@ runs:
         set -euo pipefail
         command -v docker >/dev/null || { echo "::error::docker is required to run this action" >&2; exit 1; }
 
-        # `queue add` errors when the agent is not running — the server returns a
-        # NotFound whose message is "<agent> is not running — spawn it first".
-        # With tolerate-not-running, absorb ONLY that into delivered=false (step
-        # succeeds) so a deliver-or-spawn caller can fall back to a fresh spawn.
-        # Match "not running" specifically, not a bare "not found": an invalid
-        # --agent persona also fails with NotFound ("agent persona … not found
-        # in catalog"), and that is a real misconfiguration that must fail loudly,
-        # not be silently absorbed. Any other error fails the step too.
+        # `queue add` fails with NotFound when there is no live agent to receive
+        # the follow-up, in two shapes — both legitimate deliver-or-spawn cases:
+        #   * "<agent> is not running — spawn it first" (exists, not running)
+        #   * 'agent "<id>" not found'                  (never spawned / no record)
+        # With tolerate-not-running, absorb either into delivered=false (step
+        # succeeds) so the caller can spawn a fresh agent. Do NOT absorb 'agent
+        # "<persona>" not found in catalog' — that's an invalid --agent persona, a
+        # real misconfiguration that must fail loudly — so exclude "in catalog".
+        # (docker-missing is already handled by the guard above.) mktemp gives a
+        # per-job error file so concurrent jobs on a shared runner can't clobber
+        # each other's stderr.
+        err=$(mktemp)
         if docker run --rm \
           -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
           "$MURMUR_IMAGE" queue add --json \
           "--preempt=$IN_PREEMPT" "--workspace=$IN_WORKSPACE" "--agent=$IN_AGENT" \
-          -- "$IN_SLUG" "$IN_PROMPT" >/dev/null 2>/tmp/qa-err.txt; then
+          -- "$IN_SLUG" "$IN_PROMPT" >/dev/null 2>"$err"; then
           delivered=true
         else
-          if [ "$IN_TOLERATE_NOT_RUNNING" = "true" ] && grep -qiE 'not running' /tmp/qa-err.txt; then
+          if [ "$IN_TOLERATE_NOT_RUNNING" = "true" ] \
+             && grep -qiE 'not running|not found' "$err" \
+             && ! grep -qi 'in catalog' "$err"; then
             delivered=false
-            echo "::notice::agent '$IN_SLUG' is not running — follow-up not delivered (delivered=false)." >&2
+            echo "::notice::no live agent '$IN_SLUG' — follow-up not delivered (delivered=false)." >&2
           else
-            cat /tmp/qa-err.txt >&2
+            cat "$err" >&2
             exit 1
           fi
         fi
