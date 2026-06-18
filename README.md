@@ -56,8 +56,10 @@ See each action's `README.md` for full inputs/outputs.
 
 ## Versioning / pinning
 
-Pin to a release tag. `@v1` is the moving major-version tag — it tracks the
-latest backwards-compatible release of the v1 action interface. For a fully
-reproducible pin, reference a commit SHA:
-`uses: prassoai/murmur-actions/spawn@<sha>`. Avoid `@main` unless you
-intentionally want the bleeding edge.
+**Pin to a full commit SHA** — `uses: prassoai/murmur-actions/spawn@<sha>` —
+especially for any job that exposes the `MURMUR_API_KEY` secret. A mutable tag
+(`@v1`, `@main`) lets a retagged or compromised upstream run attacker-controlled
+code in your secret-bearing job and exfiltrate the key; an immutable SHA can't
+move under you. Add a trailing `# v1` comment so the human-readable version is
+still visible. `@v1` (the moving major tag) is offered for convenience and
+non-sensitive use, but SHA-pinning is the recommended default.
