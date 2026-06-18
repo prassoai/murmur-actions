@@ -71,7 +71,7 @@ add_arg() { # KEY VALUE — append a string field only when non-empty
     spawn_args=$(jq -c --arg k "$1" --arg v "$2" '. + {($k):$v}' <<<"$spawn_args")
   fi
 }
-add_arg agent "${MURMUR_CODING_AGENT:-}"
+add_arg agent "${MURMUR_AGENT_PERSONA:-}"
 add_arg out "${MURMUR_EXPECTED_OUTPUT:-}"
 add_arg model "${MURMUR_MODEL:-}"
 add_arg reasoning_effort "${MURMUR_REASONING_EFFORT:-}"

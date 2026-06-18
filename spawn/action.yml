@@ -22,7 +22,7 @@ inputs:
     description: Agent slug. Defaults to gha-<run_id>-<run_attempt> so re-runs are distinct.
     required: false
     default: ""
-  coding-agent:
+  agent-persona:
     description: Agent persona name (resolved from the tenant catalog). Optional.
     required: false
     default: ""
@@ -90,7 +90,7 @@ runs:
         MURMUR_WORKSPACE: ${{ inputs.workspace }}
         MURMUR_PROMPT: ${{ inputs.prompt }}
         MURMUR_SLUG: ${{ inputs.slug }}
-        MURMUR_CODING_AGENT: ${{ inputs.coding-agent }}
+        MURMUR_AGENT_PERSONA: ${{ inputs.agent-persona }}
         MURMUR_OUTPUT_SCHEMA: ${{ inputs.output-schema }}
         MURMUR_EXPECTED_OUTPUT: ${{ inputs.expected-output }}
         MURMUR_ON_IDLE: ${{ inputs.on-idle }}
