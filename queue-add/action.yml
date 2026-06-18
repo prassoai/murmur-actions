@@ -86,10 +86,12 @@ runs:
         #   * "<agent> is not running — spawn it first" (exists, not running)
         #   * 'agent "<id>" not found'                  (never spawned / no record)
         # With tolerate-not-running, absorb either into delivered=false (step
-        # succeeds) so the caller can spawn a fresh agent. Do NOT absorb 'agent
-        # "<persona>" not found in catalog' — that's an invalid --agent persona, a
-        # real misconfiguration that must fail loudly — so exclude "in catalog".
-        # (docker-missing is already handled by the guard above.) mktemp gives a
+        # succeeds) so the caller can spawn a fresh agent. The not-found match is
+        # scoped to "agent … not found": a non-agent NotFound — an empty/invalid
+        # api-key or a missing config surfacing as "… not found" — must fail
+        # loudly, not be masked as a missing agent. And exclude "in catalog" so an
+        # invalid --agent persona ('agent "<persona>" not found in catalog') also
+        # fails. (docker-missing is handled by the guard above.) mktemp gives a
         # per-job error file so concurrent jobs on a shared runner can't clobber
         # each other's stderr.
         err=$(mktemp)
@@ -101,7 +103,7 @@ runs:
           delivered=true
         else
           if [ "$IN_TOLERATE_NOT_RUNNING" = "true" ] \
-             && grep -qiE 'not running|not found' "$err" \
+             && grep -qiE 'is not running|agent.*not found' "$err" \
              && ! grep -qi 'in catalog' "$err"; then
             delivered=false
             echo "::notice::no live agent '$IN_SLUG' — follow-up not delivered (delivered=false)." >&2
