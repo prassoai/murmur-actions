@@ -1,0 +1,125 @@
+name: Murmur Queue Add
+description: >-
+  Send a follow-up to a running murmur agent. A composite action that runs the
+  published murmur CLI image (docker run … queue add --json) and reports the
+  outcome as step outputs, authenticated with a service-profile API key (mur_…).
+  With preempt=true the
+  call is atomic: it interrupts the agent's in-flight turn, drops any pending
+  follow-ups, then enqueues this one (latest-wins) — the right primitive for a
+  persistent per-PR worker that must abandon a stale verification and re-run
+  against the new head. A thin RPC: it enqueues and returns; it does NOT wait for
+  the agent to act (the agent reports on its own, e.g. by posting a PR comment).
+
+inputs:
+  api-key:
+    description: A mur_-prefixed service-profile API key. Pass via a secret, never inline.
+    required: true
+  api-address:
+    description: >-
+      murmur-api gRPC address as host:port (e.g. api.murmur.dev:9090), set on
+      MURMUR_API_ADDRESS. Leave empty to use the CLI's built-in production
+      default (api.murmur.dev:9090, TLS on).
+    required: false
+    default: ""
+  workspace:
+    description: Murmur workspace the agent runs in.
+    required: true
+  slug:
+    description: Slug of the running agent to send the follow-up to.
+    required: true
+  prompt:
+    description: The follow-up message (queue add description).
+    required: true
+  preempt:
+    description: >-
+      When "true", atomically interrupt the agent's current turn, drop pending
+      follow-ups, then enqueue this one (latest-wins). When "false" (default),
+      append normally behind any queued follow-ups.
+    required: false
+    default: "false"
+  agent-persona:
+    description: Agent persona override for this follow-up (resolved from the tenant catalog). Optional.
+    required: false
+    default: ""
+  tolerate-not-running:
+    description: >-
+      When "true", a follow-up that cannot be delivered because the agent is not
+      running (or does not exist) is reported as delivered=false instead of
+      failing the step, so the caller can spawn a fresh agent. Any other error
+      still fails. When "false" (default), a not-running agent fails the step.
+    required: false
+    default: "false"
+
+outputs:
+  agent-ref:
+    description: The slug the follow-up was sent to.
+    value: ${{ steps.run.outputs.agent-ref }}
+  delivered:
+    description: >-
+      "true" if the follow-up was enqueued; "false" if the agent was not running
+      and tolerate-not-running was set (the caller should spawn instead).
+    value: ${{ steps.run.outputs.delivered }}
+
+runs:
+  # Composite (see actions/spawn/action.yml): runs the published murmur-cli image
+  # and parses --json into outputs. The CLI knows nothing about GitHub Actions.
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        MURMUR_API_KEY: ${{ inputs.api-key }}
+        MURMUR_API_ADDRESS: ${{ inputs.api-address }}
+        MURMUR_IMAGE: ghcr.io/prassoai/murmur-cli:main
+        IN_WORKSPACE: ${{ inputs.workspace }}
+        IN_SLUG: ${{ inputs.slug }}
+        IN_PROMPT: ${{ inputs.prompt }}
+        IN_PREEMPT: ${{ inputs.preempt }}
+        IN_AGENT: ${{ inputs.agent-persona }}
+        IN_TOLERATE_NOT_RUNNING: ${{ inputs.tolerate-not-running }}
+      run: |
+        set -euo pipefail
+        command -v docker >/dev/null || { echo "::error::docker is required to run this action" >&2; exit 1; }
+
+        # slug_log is the slug with any CR/LF stripped, for safe use in log lines
+        # and $GITHUB_OUTPUT — a workflow command (::notice::…) or an output line
+        # starts at a newline, so an untrusted slug containing "\n::error::…" could
+        # otherwise forge a workflow command. The raw $IN_SLUG still goes to the
+        # CLI (the server validates the real slug).
+        slug_log=${IN_SLUG//[$'\n\r']/}
+
+        # `queue add` fails with NotFound when there is no live agent to receive
+        # the follow-up, in two shapes — both legitimate deliver-or-spawn cases:
+        #   * "<agent> is not running — spawn it first" (exists, not running)
+        #   * 'agent "<id>" not found'                  (never spawned / no record)
+        # With tolerate-not-running, absorb either into delivered=false (step
+        # succeeds) so the caller can spawn a fresh agent. The not-found match is
+        # scoped to "agent … not found": a non-agent NotFound — an empty/invalid
+        # api-key or a missing config surfacing as "… not found" — must fail
+        # loudly, not be masked as a missing agent. And exclude "in catalog" so an
+        # invalid --agent persona ('agent "<persona>" not found in catalog') also
+        # fails. (docker-missing is handled by the guard above.) mktemp gives a
+        # per-job error file so concurrent jobs on a shared runner can't clobber
+        # each other's stderr.
+        err=$(mktemp)
+        if docker run --rm \
+          -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
+          "$MURMUR_IMAGE" queue add --json \
+          "--preempt=$IN_PREEMPT" "--workspace=$IN_WORKSPACE" "--agent=$IN_AGENT" \
+          -- "$IN_SLUG" "$IN_PROMPT" >/dev/null 2>"$err"; then
+          delivered=true
+        else
+          if [ "$IN_TOLERATE_NOT_RUNNING" = "true" ] \
+             && grep -qiE 'is not running|agent.*not found' "$err" \
+             && ! grep -qi 'in catalog' "$err"; then
+            delivered=false
+            echo "::notice::no live agent '$slug_log' — follow-up not delivered (delivered=false)." >&2
+          else
+            cat "$err" >&2
+            exit 1
+          fi
+        fi
+        {
+          echo "agent-ref=$slug_log"
+          echo "delivered=$delivered"
+        } >>"$GITHUB_OUTPUT"
