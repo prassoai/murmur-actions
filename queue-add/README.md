@@ -59,5 +59,6 @@ argument) still fails the step.
 
 See [`action.yml`](./action.yml). Inputs: `api-key`, `api-address`, `workspace`,
 `slug`, `prompt`, `preempt` (default `"false"`), `agent-persona` (optional),
-`tolerate-not-running` (default `"false"`). Outputs: `agent-ref`, `delivered`
+`model` (optional, sticky model override — wins over the persona's model, as
+at spawn), `tolerate-not-running` (default `"false"`). Outputs: `agent-ref`, `delivered`
 (`"true"` enqueued, `"false"` agent not running and tolerated).
