@@ -167,16 +167,20 @@ runs:
         slug_log=${IN_SLUG//[$'\n\r']/}
 
         # --tag is repeatable on the CLI; the action's tags input is a
-        # comma-separated list. Whitespace is stripped per element (a valid tag
-        # cannot contain any) and empty elements are dropped; the server
-        # validates each tag (DNS-label slug, max 8) and rejects a bad set
-        # loudly, so simple comma-splitting cannot smuggle a malformed tag
-        # through. The ${arr[@]+…} expansion keeps `set -u` happy on an empty
-        # array under pre-4.4 bash.
+        # comma-separated list. Each element is trimmed of leading/trailing
+        # whitespace ONLY — interior whitespace is preserved so a malformed tag
+        # like "prod us" reaches the server and is rejected loudly (DNS-label
+        # slug, max 8) instead of being silently rewritten to "produs". Empty
+        # elements are dropped. The ${arr[@]+…} expansion keeps `set -u` happy
+        # on an empty array under pre-4.4 bash.
+        # read -d '' consumes the whole input (not just the first line, which
+        # would silently truncate a multiline value) and returns nonzero at
+        # EOF — hence the || true; the array is populated regardless.
         tag_args=()
-        IFS=',' read -ra tags <<<"$IN_TAGS"
+        IFS=',' read -rd '' -a tags <<<"$IN_TAGS" || true
         for t in "${tags[@]}"; do
-          t=${t//[[:space:]]/}
+          t="${t#"${t%%[![:space:]]*}"}"
+          t="${t%"${t##*[![:space:]]}"}"
           [ -n "$t" ] && tag_args+=("--tag=$t")
         done
 
