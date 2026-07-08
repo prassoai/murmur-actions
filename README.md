@@ -1,14 +1,13 @@
 # murmur-actions
 
-Composite GitHub Actions for [Murmur](https://github.com/prassoai/murmuration) —
+Composite GitHub Actions for [Murmur](https://murmur.dev) —
 drive murmur agents from any GitHub workflow: spawn an agent and read its
 structured output back into a job, send follow-ups to a running agent, and tear
 it down on a lifecycle event.
 
 > **Canonical source.** This repo *is* the source of these actions. Any GitHub
 > repository can consume them directly:
-> `uses: prassoai/murmur-actions/<name>@<ref>`. (They used to be generated from
-> `prassoai/murmuration/actions/`; that copy is gone — edit them here.)
+> `uses: prassoai/murmur-actions/<name>@<ref>`.
 
 ## How they work
 
@@ -18,8 +17,8 @@ public murmur CLI image, then parses the typed `--json` output to set the
 action's step outputs. The CLI itself is format-agnostic — it only emits
 `--json`; the GitHub-Actions glue (parsing, `$GITHUB_OUTPUT`, deliver-or-spawn,
 idempotent teardown) lives in the composite step. There is no MCP-over-bash
-plumbing and no Go toolchain on the runner — just `docker` and `jq`, both
-present on `ubuntu-latest`.
+plumbing and no Go toolchain on the runner — just `docker`, `jq`, and `openssl`,
+all present on `ubuntu-latest`.
 
 The image (`ghcr.io/prassoai/murmur-cli`) is a **public** GHCR package, so the
 `docker run` pulls with no auth. The `:main` tag tracks the latest released CLI.
