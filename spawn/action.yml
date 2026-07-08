@@ -84,6 +84,15 @@ inputs:
     description: One-sentence human-readable goal shown in the dashboard. Optional.
     required: false
     default: ""
+  tags:
+    description: >-
+      Comma-separated tag names to attach for dashboard grouping/filtering
+      (e.g. "ci,pr-verify"). Maps to repeated `murmur spawn --tag`. Each tag
+      must be a DNS-label slug (^[a-z0-9][a-z0-9-]{0,62}$), max 8 per agent —
+      the server rejects a non-conforming or over-cap set loudly. A tag that
+      does not yet exist is created. Optional.
+    required: false
+    default: ""
   timeout:
     description: >-
       With wait=true, max seconds to block before failing the step (a client
@@ -138,6 +147,7 @@ runs:
         IN_MODEL: ${{ inputs.model }}
         IN_REASONING: ${{ inputs.reasoning-effort }}
         IN_PURPOSE: ${{ inputs.purpose }}
+        IN_TAGS: ${{ inputs.tags }}
         IN_OUTPUT_SCHEMA: ${{ inputs.output-schema }}
         IN_TIMEOUT: ${{ inputs.timeout }}
       run: |
@@ -156,6 +166,20 @@ runs:
         # could otherwise forge one. The raw $IN_SLUG still goes to the CLI.
         slug_log=${IN_SLUG//[$'\n\r']/}
 
+        # --tag is repeatable on the CLI; the action's tags input is a
+        # comma-separated list. Whitespace is stripped per element (a valid tag
+        # cannot contain any) and empty elements are dropped; the server
+        # validates each tag (DNS-label slug, max 8) and rejects a bad set
+        # loudly, so simple comma-splitting cannot smuggle a malformed tag
+        # through. The ${arr[@]+…} expansion keeps `set -u` happy on an empty
+        # array under pre-4.4 bash.
+        tag_args=()
+        IFS=',' read -ra tags <<<"$IN_TAGS"
+        for t in "${tags[@]}"; do
+          t=${t//[[:space:]]/}
+          [ -n "$t" ] && tag_args+=("--tag=$t")
+        done
+
         # Spawn the agent. Never --wait here: agent-ref must be emitted before any
         # blocking wait, so a downstream step can reference (or tear down) the
         # agent even if the wait below times out. The workspace is mounted so an
@@ -170,6 +194,7 @@ runs:
           "--on-idle=$IN_ON_IDLE" "--force-new=$IN_FORCE_NEW" \
           "--model=$IN_MODEL" "--reasoning-effort=$IN_REASONING" \
           "--purpose=$IN_PURPOSE" "--output-schema=$IN_OUTPUT_SCHEMA" \
+          ${tag_args[@]+"${tag_args[@]}"} \
           -- "$IN_SLUG" "$IN_PROMPT" >/dev/null
 
         echo "agent-ref=$slug_log" >>"$GITHUB_OUTPUT"

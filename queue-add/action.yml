@@ -49,6 +49,13 @@ inputs:
       at spawn. Optional.
     required: false
     default: ""
+  reasoning-effort:
+    description: >-
+      Reasoning-effort override for this and subsequent turns — sticky, like
+      model; empty leaves the agent's current effort unchanged. Claude: low,
+      medium, high, xhigh, max. Codex: none, low, medium, high, xhigh. Optional.
+    required: false
+    default: ""
   tolerate-not-running:
     description: >-
       When "true", a follow-up that cannot be delivered because the agent is not
@@ -85,6 +92,7 @@ runs:
         IN_PREEMPT: ${{ inputs.preempt }}
         IN_AGENT: ${{ inputs.agent-persona }}
         IN_MODEL: ${{ inputs.model }}
+        IN_REASONING: ${{ inputs.reasoning-effort }}
         IN_TOLERATE_NOT_RUNNING: ${{ inputs.tolerate-not-running }}
       run: |
         set -euo pipefail
@@ -115,7 +123,7 @@ runs:
           -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
           "$MURMUR_IMAGE" queue add --json \
           "--preempt=$IN_PREEMPT" "--workspace=$IN_WORKSPACE" "--agent=$IN_AGENT" \
-          "--model=$IN_MODEL" \
+          "--model=$IN_MODEL" "--reasoning-effort=$IN_REASONING" \
           -- "$IN_SLUG" "$IN_PROMPT" >/dev/null 2>"$err"; then
           delivered=true
         else
