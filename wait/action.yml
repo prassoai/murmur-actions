@@ -1,0 +1,176 @@
+name: Murmur Wait
+description: >-
+  Block until a murmur agent reaches a target phase (or is terminal/at rest)
+  and surface its result as step outputs. A composite action that runs the
+  published murmur CLI image (docker run … wait --json) and parses the typed
+  AgentStatus into step outputs, authenticated with a service-profile API key
+  (mur_…). The standalone counterpart of the wait built into the spawn action:
+  use it to join an agent spawned earlier (wait=false), in another job, or in
+  another workflow entirely.
+
+inputs:
+  api-key:
+    description: A mur_-prefixed service-profile API key. Pass via a secret, never inline.
+    required: true
+  api-address:
+    description: >-
+      murmur-api gRPC address as host:port (e.g. api.murmur.dev:9090), set on
+      MURMUR_API_ADDRESS. Leave empty to use the CLI's built-in production
+      default (api.murmur.dev:9090, TLS on).
+    required: false
+    default: ""
+  workspace:
+    description: Murmur workspace the agent runs in.
+    required: true
+  slug:
+    description: Slug of the agent to wait on.
+    required: true
+  phase:
+    description: >-
+      Phase to wait for (e.g. "running", "task-complete") — human or enum
+      spelling, per `murmur wait --phase`. Empty (default) waits until the
+      agent is terminal or at rest (the same default wait the spawn action
+      performs).
+    required: false
+    default: ""
+  timeout:
+    description: >-
+      Max seconds to block before failing the step (a client deadline;
+      0 = no client deadline — the job's own timeout is the backstop). On
+      expiry the CLI reports the agent's latest status, so the step still
+      writes its outputs (with timed-out=true) before failing.
+    required: false
+    default: "600"
+
+outputs:
+  agent-ref:
+    description: The slug that was waited on.
+    value: ${{ steps.run.outputs.agent-ref }}
+  phase:
+    description: >-
+      The agent's phase when the wait ended — the reached/terminal/at-rest
+      phase, or the latest phase observed when the wait timed out.
+    value: ${{ steps.run.outputs.phase }}
+  is-error:
+    description: '"true" if the agent run errored.'
+    value: ${{ steps.run.outputs.is-error }}
+  timed-out:
+    description: >-
+      "true" if the wait hit the client deadline before the target was
+      reached. The step fails, but phase/is-error/response/structured-output
+      still carry the latest observed status for an `if: always()` consumer.
+    value: ${{ steps.run.outputs.timed-out }}
+  response:
+    description: The agent's human-readable response summary.
+    value: ${{ steps.run.outputs.response }}
+  structured-output:
+    description: The caller-schema result as a JSON string (empty if the agent was given no output schema).
+    value: ${{ steps.run.outputs.structured-output }}
+
+runs:
+  # Composite (see the spawn action): runs the published murmur-cli image with
+  # `docker run … --json` and a shell step parses the typed JSON into the
+  # action's outputs. The CLI knows nothing about GitHub Actions.
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        MURMUR_API_KEY: ${{ inputs.api-key }}
+        MURMUR_API_ADDRESS: ${{ inputs.api-address }}
+        MURMUR_IMAGE: ghcr.io/prassoai/murmur-cli:main
+        IN_WORKSPACE: ${{ inputs.workspace }}
+        IN_SLUG: ${{ inputs.slug }}
+        IN_PHASE: ${{ inputs.phase }}
+        IN_TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        set -euo pipefail
+        # Fail loud up front if a required tool is missing: docker runs the CLI
+        # image, jq parses the AgentStatus, and openssl mints the heredoc
+        # delimiter for the multiline outputs.
+        for cmd in docker jq openssl; do
+          command -v "$cmd" >/dev/null || { echo "::error::$cmd is required to run this action" >&2; exit 1; }
+        done
+
+        # slug_log = slug with CR/LF stripped, for safe use in log lines and the
+        # agent-ref $GITHUB_OUTPUT — a workflow command (::error::…) or an output
+        # line begins at a newline, so an untrusted slug containing "\n::error::…"
+        # could otherwise forge one. The raw $IN_SLUG still goes to the CLI.
+        slug_log=${IN_SLUG//[$'\n\r']/}
+        echo "agent-ref=$slug_log" >>"$GITHUB_OUTPUT"
+
+        # Block until the agent reaches the target (default: terminal or at
+        # rest). --phase= (empty) means the default wait, so it is passed
+        # unconditionally. On a client-side timeout the CLI fetches and prints
+        # the agent's latest AgentStatus JSON on stdout — precisely so a --json
+        # consumer can phase-gate — then exits non-zero with "wait timed out
+        # after Ns (phase …)" on stderr; detect that (the timeout message AND a
+        # parseable status — jq alone is not enough: jq 1.6's -e exits 0 on
+        # empty input) and still write the outputs, marked timed-out=true,
+        # before failing the step. Any other failure (auth, transport, unknown
+        # slug) — including the timeout variant whose status fetch also failed
+        # — prints no status JSON: surface stderr and fail with no turn
+        # outputs. mktemp gives a per-job error file so concurrent jobs on a
+        # shared runner can't clobber each other's stderr.
+        err=$(mktemp)
+        timed_out=false
+        if status_json=$(docker run --rm \
+          -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
+          "$MURMUR_IMAGE" wait --json \
+          "--workspace=$IN_WORKSPACE" "--phase=$IN_PHASE" "--timeout=$IN_TIMEOUT" \
+          -- "$IN_SLUG" 2>"$err"); then
+          :
+        elif grep -q 'wait timed out' "$err" \
+          && [ -n "$status_json" ] \
+          && jq -e '.phase' <<<"$status_json" >/dev/null 2>&1; then
+          timed_out=true
+        else
+          cat "$err" >&2
+          exit 1
+        fi
+
+        # `wait --json` prints the AgentStatus as protojson (camelCase keys) —
+        # the same parse as the spawn action's wait tail; keep them textually
+        # identical so drift is grep-detectable.
+        phase=$(jq -r '.phase // ""' <<<"$status_json")
+        is_error=$(jq -r '.output.isError // false' <<<"$status_json")
+        response=$(jq -r '.output.response // ""' <<<"$status_json")
+        structured=$(jq -r '.output.structuredOutput // ""' <<<"$status_json")
+
+        # printf + a random heredoc delimiter so a multiline value (a response or
+        # a JSON structured-output) round-trips verbatim.
+        emit_multiline() {
+          local name="$1" value="$2" delim
+          delim="ghadelim_$(openssl rand -hex 16)"
+          {
+            echo "${name}<<${delim}"
+            printf '%s\n' "$value"
+            echo "$delim"
+          } >>"$GITHUB_OUTPUT"
+        }
+        {
+          echo "phase=$phase"
+          echo "is-error=$is_error"
+          echo "timed-out=$timed_out"
+        } >>"$GITHUB_OUTPUT"
+        emit_multiline response "$response"
+        emit_multiline structured-output "$structured"
+
+        # Fail the step on a timeout, an agent-reported error, or a terminal
+        # failure phase — after outputs are written (so an `if: always()` step
+        # still sees them).
+        if [ "$timed_out" = "true" ]; then
+          echo "::error::murmur wait on '$slug_log' timed out after ${IN_TIMEOUT}s (latest phase '$phase')" >&2
+          exit 1
+        fi
+        echo "Wait on '$slug_log' ended in phase '$phase' (is_error=$is_error)." >&2
+        if [ "$is_error" = "true" ]; then
+          echo "::error::murmur agent '$slug_log' reported an error result" >&2
+          exit 1
+        fi
+        case "$phase" in
+          PHASE_FAILED | PHASE_CANCELED)
+            echo "::error::murmur agent '$slug_log' ended in phase $phase" >&2
+            exit 1
+            ;;
+        esac

@@ -1,0 +1,151 @@
+name: Murmur Status
+description: >-
+  Read a murmur agent's current state without blocking. A composite action that
+  runs the published murmur CLI image (docker run … status --json) and parses
+  the typed AgentStatus into step outputs, authenticated with a service-profile
+  API key (mur_…). A pure read: the step never fails on agent state (a failed
+  or canceled agent is a reported outcome, not a step failure) — branch on the
+  outputs. With tolerate-missing=true (default) an agent that has no record
+  (never spawned, or fully torn down) is reported as exists=false instead of
+  failing, so the action is safe in `if: always()` reporting steps and
+  scheduled sweeps.
+
+inputs:
+  api-key:
+    description: A mur_-prefixed service-profile API key. Pass via a secret, never inline.
+    required: true
+  api-address:
+    description: >-
+      murmur-api gRPC address as host:port (e.g. api.murmur.dev:9090), set on
+      MURMUR_API_ADDRESS. Leave empty to use the CLI's built-in production
+      default (api.murmur.dev:9090, TLS on).
+    required: false
+    default: ""
+  workspace:
+    description: Murmur workspace the agent runs in.
+    required: true
+  slug:
+    description: Slug of the agent to query.
+    required: true
+  tolerate-missing:
+    description: >-
+      When "true" (default), querying an agent that does not exist (never
+      spawned, or already fully torn down) succeeds with exists=false and empty
+      status outputs. Real transport/auth errors still fail the step. Set
+      "false" to fail on a missing agent.
+    required: false
+    default: "true"
+
+outputs:
+  agent-ref:
+    description: The slug that was queried.
+    value: ${{ steps.run.outputs.agent-ref }}
+  exists:
+    description: >-
+      "true" if the agent has a record; "false" if it does not and
+      tolerate-missing was set. Gate on this before reading the other outputs
+      — they are empty when exists=false.
+    value: ${{ steps.run.outputs.exists }}
+  phase:
+    description: The agent's current phase (e.g. PHASE_RUNNING, PHASE_SLEEPING, PHASE_COMPLETED).
+    value: ${{ steps.run.outputs.phase }}
+  is-error:
+    description: '"true" if the agent''s latest result was an error.'
+    value: ${{ steps.run.outputs.is-error }}
+  response:
+    description: The agent's latest human-readable response summary (empty while it has not reported yet).
+    value: ${{ steps.run.outputs.response }}
+  structured-output:
+    description: The caller-schema result as a JSON string (empty if the agent was given no output schema, or has not reported yet).
+    value: ${{ steps.run.outputs.structured-output }}
+
+runs:
+  # Composite (see the spawn action): runs the published murmur-cli image with
+  # `docker run … --json` and a shell step parses the typed JSON into the
+  # action's outputs. The CLI knows nothing about GitHub Actions.
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        MURMUR_API_KEY: ${{ inputs.api-key }}
+        MURMUR_API_ADDRESS: ${{ inputs.api-address }}
+        MURMUR_IMAGE: ghcr.io/prassoai/murmur-cli:main
+        IN_WORKSPACE: ${{ inputs.workspace }}
+        IN_SLUG: ${{ inputs.slug }}
+        IN_TOLERATE_MISSING: ${{ inputs.tolerate-missing }}
+      run: |
+        set -euo pipefail
+        # Fail loud up front if a required tool is missing: docker runs the CLI
+        # image, jq parses the AgentStatus, and openssl mints the heredoc
+        # delimiter for the multiline outputs.
+        for cmd in docker jq openssl; do
+          command -v "$cmd" >/dev/null || { echo "::error::$cmd is required to run this action" >&2; exit 1; }
+        done
+
+        # slug_log = slug with CR/LF stripped, for safe use in log lines and the
+        # agent-ref $GITHUB_OUTPUT — a workflow command (::error::…) or an output
+        # line begins at a newline, so an untrusted slug containing "\n::error::…"
+        # could otherwise forge one. The raw $IN_SLUG still goes to the CLI.
+        slug_log=${IN_SLUG//[$'\n\r']/}
+        echo "agent-ref=$slug_log" >>"$GITHUB_OUTPUT"
+
+        # A status query for a slug with no catalog record fails authz with
+        # NotFound ("agent \"…\" not found" — it was never spawned, or is
+        # already fully torn down). With tolerate-missing, absorb only that
+        # into exists=false; any other error (auth, transport) fails the step.
+        # Match the agent-not-found message specifically, NOT a bare "not
+        # found" — a tooling failure like "docker: command not found" must not
+        # be mistaken for a missing agent. mktemp gives a per-job error file so
+        # concurrent jobs on a shared runner can't clobber each other's stderr.
+        err=$(mktemp)
+        exists=true
+        if status_json=$(docker run --rm \
+          -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
+          "$MURMUR_IMAGE" status --json "--workspace=$IN_WORKSPACE" \
+          -- "$IN_SLUG" 2>"$err"); then
+          :
+        elif [ "$IN_TOLERATE_MISSING" = "true" ] && grep -qiE 'agent .* not found' "$err"; then
+          exists=false
+          echo "::notice::agent '$slug_log' not found — reporting exists=false." >&2
+        else
+          cat "$err" >&2
+          exit 1
+        fi
+
+        # `status --json` prints the AgentStatus as protojson (camelCase keys) —
+        # the same parse as the spawn action's wait tail; keep them textually
+        # identical so drift is grep-detectable. When the agent does not exist
+        # every status output is empty: gate on exists first.
+        if [ "$exists" = "true" ]; then
+          phase=$(jq -r '.phase // ""' <<<"$status_json")
+          is_error=$(jq -r '.output.isError // false' <<<"$status_json")
+          response=$(jq -r '.output.response // ""' <<<"$status_json")
+          structured=$(jq -r '.output.structuredOutput // ""' <<<"$status_json")
+        else
+          phase="" is_error="" response="" structured=""
+        fi
+
+        # printf + a random heredoc delimiter so a multiline value (a response or
+        # a JSON structured-output) round-trips verbatim.
+        emit_multiline() {
+          local name="$1" value="$2" delim
+          delim="ghadelim_$(openssl rand -hex 16)"
+          {
+            echo "${name}<<${delim}"
+            printf '%s\n' "$value"
+            echo "$delim"
+          } >>"$GITHUB_OUTPUT"
+        }
+        {
+          echo "exists=$exists"
+          echo "phase=$phase"
+          echo "is-error=$is_error"
+        } >>"$GITHUB_OUTPUT"
+        emit_multiline response "$response"
+        emit_multiline structured-output "$structured"
+
+        # A read never fails the step on agent state — a failed agent is a
+        # reported outcome here, unlike spawn/wait which fail the step. The
+        # caller branches on exists/phase/is-error.
+        echo "Agent '$slug_log': exists=$exists phase='$phase' is_error=$is_error." >&2

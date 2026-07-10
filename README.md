@@ -35,6 +35,12 @@ default. There is no OIDC, webhook, or repo token involved.
 
 - [`spawn`](./spawn) — spawn a murmur agent, optionally wait for it, and return
   its structured output as an "agent-powered check run".
+- [`wait`](./wait) — block until an agent reaches a target phase (or is
+  terminal/at rest) and return its structured output; join an agent spawned
+  earlier, in another job, or in another workflow.
+- [`status`](./status) — read an agent's current state without blocking; a
+  pure read that never fails the step on agent state (`exists=false` for a
+  missing agent).
 - [`queue-add`](./queue-add) — send a follow-up to a running agent
   (`--preempt` for latest-wins re-runs); reports `delivered`.
 - [`kill`](./kill) — cancel an agent and its subtree (idempotent teardown).
