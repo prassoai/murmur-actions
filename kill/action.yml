@@ -62,6 +62,7 @@ runs:
         # other error (auth, transport) fails the step. mktemp gives a per-job
         # error file so concurrent jobs on a shared runner can't clobber it.
         err=$(mktemp)
+        trap 'rm -f "$err"' EXIT
         if docker run --rm \
           -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
           "$MURMUR_IMAGE" kill --json "--workspace=$IN_WORKSPACE" -- "$IN_SLUG" \

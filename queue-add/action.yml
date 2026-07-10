@@ -119,6 +119,7 @@ runs:
         # per-job error file so concurrent jobs on a shared runner can't clobber
         # each other's stderr.
         err=$(mktemp)
+        trap 'rm -f "$err"' EXIT
         if docker run --rm \
           -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
           "$MURMUR_IMAGE" queue add --json \

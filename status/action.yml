@@ -99,6 +99,7 @@ runs:
         # be mistaken for a missing agent. mktemp gives a per-job error file so
         # concurrent jobs on a shared runner can't clobber each other's stderr.
         err=$(mktemp)
+        trap 'rm -f "$err"' EXIT
         exists=true
         if status_json=$(docker run --rm \
           -e MURMUR_API_KEY -e MURMUR_API_ADDRESS \
