@@ -29,7 +29,12 @@ over gRPC to `murmur-api` (`api-address`, default `api.murmur.dev:9090`).
   with:
     api-key:   ${{ secrets.MURMUR_API_KEY }}
     workspace: my-workspace
-    slug:      verify-pr-${{ github.event.pull_request.number }}
+    # repository.id is numeric — always a valid slug — unique across repos, and
+    # needs no per-repo editing. repository.name works only if the repo's name
+    # already fits the slug grammar ^[a-z][a-z0-9-]{0,62}$ (start with a
+    # lowercase letter; lowercase letters, digits, hyphens; max 63 chars) —
+    # otherwise sanitize it or keep the ID.
+    slug:      verify-${{ github.event.repository.id }}-pr-${{ github.event.pull_request.number }}
     preempt:   "true"
     prompt:    "Head is now ${{ github.event.pull_request.head.sha }}; re-verify the new head."
 ```
