@@ -29,7 +29,7 @@ over gRPC to `murmur-api` (`api-address`, default `api.murmur.dev:9090`).
   with:
     api-key:   ${{ secrets.MURMUR_API_KEY }}
     workspace: my-workspace
-    slug:      verify-pr-${{ github.event.pull_request.number }}
+    slug:      verify-${{ github.event.repository.id }}-pr-${{ github.event.pull_request.number }}
 ```
 
 ## Inputs
