@@ -5,7 +5,7 @@ down a persistent agent on a lifecycle event — e.g. killing a per-PR verifier
 when the PR closes.
 
 A **composite action**: a `run:` step does
-`docker run … ghcr.io/prassoai/murmur-cli:main kill --json …`. The CLI knows
+`docker run … ghcr.io/prassoai/murmur-cli:<pinned> kill --json …`. The CLI knows
 nothing about GitHub Actions; the idempotent-teardown glue lives in the action.
 
 ## Idempotent teardown

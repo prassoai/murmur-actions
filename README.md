@@ -12,7 +12,7 @@ it down on a lifecycle event.
 ## How they work
 
 Each action is a **composite action** whose `run:` step does
-`docker run … ghcr.io/prassoai/murmur-cli:main <command> … --json` against the
+`docker run … ghcr.io/prassoai/murmur-cli:<pinned> <command> … --json` against the
 public murmur CLI image, then parses the typed `--json` output to set the
 action's step outputs. The CLI itself is format-agnostic — it only emits
 `--json`; the GitHub-Actions glue (parsing, `$GITHUB_OUTPUT`, deliver-or-spawn,
@@ -21,7 +21,9 @@ plumbing and no Go toolchain on the runner — just `docker`, `jq`, and `openssl
 all present on `ubuntu-latest`.
 
 The image (`ghcr.io/prassoai/murmur-cli`) is a **public** GHCR package, so the
-`docker run` pulls with no auth. The `:main` tag tracks the latest released CLI.
+`docker run` pulls with no auth. Each action pins the image by digest to a
+released CLI build (currently `v319.2`), so an action ref always runs the same
+CLI. A new action release bumps the pin in all three actions together.
 
 ## Auth
 
