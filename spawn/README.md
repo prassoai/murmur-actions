@@ -4,7 +4,7 @@ Spawn a murmur agent from a GitHub workflow, optionally wait for it to finish,
 and read its structured output back into the job — an "agent-powered check run".
 
 A **composite action**: a `run:` step does
-`docker run … ghcr.io/prassoai/murmur-cli:main spawn --json …` against the
+`docker run … ghcr.io/prassoai/murmur-cli:<pinned> spawn --json …` against the
 public murmur CLI image, and a shell step parses the typed `--json` output into
 the action's step outputs. The CLI stays format-agnostic; the GitHub-Actions
 glue lives here.

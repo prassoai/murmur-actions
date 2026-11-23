@@ -130,12 +130,13 @@ runs:
       env:
         MURMUR_API_KEY: ${{ inputs.api-key }}
         MURMUR_API_ADDRESS: ${{ inputs.api-address }}
-        # The murmur-cli image GHCR-published on every push to main. Tracking
-        # `main` keeps the action on the current CLI without a per-bump pin: the
-        # action lives in the same repo it targets and runs against the same
-        # continuously-deployed control plane, so `main` and the deployed API
-        # advance together and stay within the server's MAJOR.0 MinClientVersion.
-        MURMUR_IMAGE: ghcr.io/prassoai/murmur-cli:main
+        # Pinned by digest so an action ref names exactly one CLI build: a
+        # caller who pins this action to a commit SHA gets the same image on
+        # every run. The tag is for readers; Docker resolves the digest. Bump
+        # all three actions (spawn, queue-add, kill) together to a released
+        # `vMAJOR.MINOR` image, which must stay within the server's
+        # MinClientVersion.
+        MURMUR_IMAGE: ghcr.io/prassoai/murmur-cli:v319.2@sha256:c4df4033475a70a0186188d4606c0c2ae820e7a8ea6ae002f992ab25b1a08c33
         IN_WORKSPACE: ${{ inputs.workspace }}
         IN_SLUG: ${{ inputs.slug }}
         IN_PROMPT: ${{ inputs.prompt }}

@@ -5,7 +5,7 @@ RPC: it enqueues the message and returns — it does not wait for the agent to
 act. Use it to drive a persistent agent (e.g. a per-PR verifier) from CI events.
 
 A **composite action**: a `run:` step does
-`docker run … ghcr.io/prassoai/murmur-cli:main queue add --json …` and reports
+`docker run … ghcr.io/prassoai/murmur-cli:<pinned> queue add --json …` and reports
 the outcome (`delivered`) as a step output. The CLI knows nothing about GitHub
 Actions; the deliver-or-spawn glue lives in the action's shell step.
 

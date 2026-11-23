@@ -43,7 +43,7 @@ runs:
       env:
         MURMUR_API_KEY: ${{ inputs.api-key }}
         MURMUR_API_ADDRESS: ${{ inputs.api-address }}
-        MURMUR_IMAGE: ghcr.io/prassoai/murmur-cli:main
+        MURMUR_IMAGE: ghcr.io/prassoai/murmur-cli:v319.2@sha256:c4df4033475a70a0186188d4606c0c2ae820e7a8ea6ae002f992ab25b1a08c33
         IN_WORKSPACE: ${{ inputs.workspace }}
         IN_SLUG: ${{ inputs.slug }}
         IN_TOLERATE_MISSING: ${{ inputs.tolerate-missing }}
